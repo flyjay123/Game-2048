@@ -1,0 +1,32 @@
+﻿<UserControl x:Class="Game2048.GamePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="clr-namespace:Game2048"
+             mc:Ignorable="d"
+             d:DesignHeight="500" d:DesignWidth="500" KeyDown="GamePage_KeyDown"
+             Focusable="True">
+    <Grid Background="#FAF8EF">
+        <UniformGrid Name="BackgroundGrid" Rows="4" Columns="4" Margin="16">
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
+        </UniformGrid>
+        
+        <Canvas Name="TileCanvas" IsHitTestVisible="False" Margin="16"/>
+    </Grid>
+</UserControl>
