@@ -7,26 +7,47 @@
              mc:Ignorable="d"
              d:DesignHeight="500" d:DesignWidth="500" KeyDown="GamePage_KeyDown"
              Focusable="True">
-    <Grid Background="#FAF8EF">
-        <UniformGrid Name="BackgroundGrid" Rows="4" Columns="4" Margin="16">
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-            <Border Background="#CDC1B4" CornerRadius="6" Margin="6" />
-        </UniformGrid>
-        
-        <Canvas Name="TileCanvas" IsHitTestVisible="False" Margin="16"/>
+    
+    <Grid x:Name="Root" Background="#FAF8EF" SizeChanged="OnRootSizeChanged">
+        <!-- 背景 4x4 灰色格子，Margin 与下方 Canvas 一致 -->
+        <ItemsControl x:Name="BackgroundGrid"
+                      Margin="16"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
+                      ItemsSource="{Binding BackgroundCells}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <UniformGrid Rows="4" Columns="4"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+
+            <!-- 关键：让每个项容器把内容拉伸 -->
+            <ItemsControl.ItemContainerStyle>
+                <Style TargetType="ContentPresenter">
+                    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                    <Setter Property="VerticalAlignment"   Value="Stretch"/>
+                </Style>
+            </ItemsControl.ItemContainerStyle>
+
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Background="#CDC1B4"
+                            CornerRadius="6"
+                            Margin="{Binding Margin}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"/>
+                    <!-- 不要再绑定 Width/Height！ -->
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+
+        <!-- 前景数字方块，Margin 必须与上面一致 -->
+        <Canvas x:Name="TileCanvas"
+                Margin="16"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                IsHitTestVisible="False"/>
     </Grid>
+
 </UserControl>

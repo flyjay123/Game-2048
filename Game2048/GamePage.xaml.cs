@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,18 +16,82 @@ namespace Game2048;
 
 public partial class GamePage : UserControl
 {
-    private TextBlock[,] blocks = new TextBlock[4, 4];
-    
-    private const int GridSize = 4;
+    // 公共常量定义（放在类顶部）
+    private const double TileCornerRadius = 6; // 圆角统一
     private const int TileSize = 100;
     private const int TileMargin = 6;
+    private const int GridSize = 4;
+    private const double Gap = 6; // 单个格子四周间隙（背景 Border.Margin="6"）
+    private const double OuterMargin = 16; // 背景 ItemsControl 与 Canvas 的统一外边距
 
-    private TextBlock[,] tileBlocks = new TextBlock[GridSize, GridSize];
+
     private int[,] board = new int[GridSize, GridSize];
 
-    public enum Direction { Up, Down, Left, Right }
-    
+    // 添加背景网格数据绑定
+    public ObservableCollection<BackgroundCell> BackgroundCells { get; }
+        = new ObservableCollection<BackgroundCell>();
+
+    public class BackgroundCell : INotifyPropertyChanged
+    {
+        private double _size;
+        private Thickness _margin;
+        private CornerRadius _cornerRadius;
+
+        private SolidColorBrush _backgroundColor =
+            new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CDC1B4"));
+
+        public SolidColorBrush BackgroundColor
+        {
+            get => _backgroundColor;
+            set
+            {
+                _backgroundColor = value;
+                OnPropertyChanged(nameof(BackgroundColor));
+            }
+        }
+
+        public double Size
+        {
+            get => _size;
+            set
+            {
+                if (Math.Abs(_size - value) > 0.1)
+                {
+                    _size = value;
+                    OnPropertyChanged(nameof(Size));
+                }
+            }
+        }
+
+        public Thickness Margin
+        {
+            get => _margin;
+            set
+            {
+                _margin = value;
+                OnPropertyChanged(nameof(Margin));
+            }
+        }
+
+        public CornerRadius CornerRadius
+        {
+            get => _cornerRadius;
+            set
+            {
+                _cornerRadius = value;
+                OnPropertyChanged(nameof(CornerRadius));
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private void OnPropertyChanged(string name) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+
     private Dictionary<(int, int), TileInfo> tileControls = new();
+
     public class AnimationInfo
     {
         public int FromRow { get; set; }
@@ -35,7 +102,8 @@ public partial class GamePage : UserControl
         public bool IsMerged { get; set; }
         public bool IsNew { get; set; }
 
-        public AnimationInfo(int fromRow, int fromCol, int toRow, int toCol, int newValue, bool isMerged, bool isNew = false)
+        public AnimationInfo(int fromRow, int fromCol, int toRow, int toCol, int newValue, bool isMerged,
+            bool isNew = false)
         {
             FromRow = fromRow;
             FromCol = fromCol;
@@ -47,39 +115,36 @@ public partial class GamePage : UserControl
         }
     }
 
-
-    
     public GamePage()
     {
         InitializeComponent();
-        InitBoard();
-        AddRandomNumber();
-        AddRandomNumber();
-        UpdateUI(null);
-    }
+        DataContext = this;
 
-    
-    private void InitBoard()
-    {
-        for (int i = 0; i < 4; i++)
+        InitBackgroundGrid();
+        Loaded += async (_, __) =>
         {
-            for (int j = 0; j < 4; j++)
+            RecomputeLayout();           // 有效 slot/tile 尺寸
+            AddRandomNumber();
+            AddRandomNumber();
+            await DrawCurrentBoardAsync(); // 等布局后再完整绘制一次
+        };
+    }
+    
+    private Task DrawCurrentBoardAsync()
+    {
+        TileCanvas.Children.Clear();
+        tileControls.Clear();
+
+        for (int r = 0; r < GridSize; r++)
+        {
+            for (int c = 0; c < GridSize; c++)
             {
-                TextBlock tb = new TextBlock
-                {
-                    Text = "",
-                    Height = 30,
-                    Width = 30,
-                    FontSize = 32,
-                    FontWeight = FontWeights.Bold,
-                    Background = new SolidColorBrush(Color.FromRgb(205, 193, 180)),
-                    TextAlignment = TextAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(5)
-                };
-                blocks[i, j] = tb;
+                int v = board[r, c];
+                if (v == 0) continue;
+                AddOrUpdateTile(r, c, v, isNew:false, isMerged:false); // 直接画当前棋盘
             }
         }
+        return Task.CompletedTask;
     }
 
     private void AddRandomNumber()
@@ -96,7 +161,7 @@ public partial class GamePage : UserControl
             }
         }
     }
-    
+
     private void PrintBoardToConsole()
     {
         Console.WriteLine("==== 当前棋盘 ====");
@@ -106,10 +171,58 @@ public partial class GamePage : UserControl
             {
                 Console.Write($"{board[i, j],4}"); // 宽度对齐
             }
+
             Console.WriteLine();
         }
+
         Console.WriteLine("=================");
     }
+    
+    private Task AnimateMoveAsync(TileInfo tile, double targetLeft, double targetTop, TimeSpan duration)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+
+        double currentLeft = Canvas.GetLeft(tile.TileBorder);
+        double currentTop  = Canvas.GetTop(tile.TileBorder);
+
+        var animX = new DoubleAnimation
+        {
+            From = tile.Translate.X,
+            To   = targetLeft - currentLeft,
+            Duration = duration,
+            EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut }
+        };
+        var animY = new DoubleAnimation
+        {
+            From = tile.Translate.Y,
+            To   = targetTop - currentTop,
+            Duration = duration,
+            EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut }
+        };
+
+        int done = 0;
+        void completeOne()
+        {
+            if (Interlocked.Increment(ref done) == 2)
+            {
+                // 动画结束：归位并清零偏移
+                Canvas.SetLeft(tile.TileBorder, targetLeft);
+                Canvas.SetTop(tile.TileBorder,  targetTop);
+                tile.Translate.X = 0;
+                tile.Translate.Y = 0;
+                tcs.TrySetResult(true);
+            }
+        }
+
+        animX.Completed += (s, e) => completeOne();
+        animY.Completed += (s, e) => completeOne();
+
+        tile.Translate.BeginAnimation(TranslateTransform.XProperty, animX);
+        tile.Translate.BeginAnimation(TranslateTransform.YProperty, animY);
+
+        return tcs.Task;
+    }
+
 
 
     private async void UpdateUI(List<AnimationInfo> animations)
@@ -122,7 +235,7 @@ public partial class GamePage : UserControl
             .Where(a => a.IsMerged)
             .Select(a => (a.FromRow, a.FromCol))
             .ToList();
-        
+
         for (int i = 0; i < GridSize; i++)
         {
             for (int j = 0; j < GridSize; j++)
@@ -132,7 +245,7 @@ public partial class GamePage : UserControl
 
                 // 跳过被合并的源块
                 if (mergedSources?.Contains((i, j)) == true) continue;
-                
+
                 bool isMerged = animations?.Any(a => a.ToRow == i && a.ToCol == j && a.IsMerged) == true;
                 bool isNew = animations == null || animations.All(a => !(a.ToRow == i && a.ToCol == j));
 
@@ -173,37 +286,46 @@ public partial class GamePage : UserControl
             _ => new SolidColorBrush(Color.FromRgb(205, 193, 180))
         };
     }
-        
-    private void GamePage_KeyDown(object sender, KeyEventArgs e)
+
+    private (double slotW, double slotH, double tileW, double tileH) GetLayout()
+    {
+        double rw = Root.ActualWidth, rh = Root.ActualHeight;
+        double availW = Math.Max(0, rw - 2 * OuterMargin);
+        double availH = Math.Max(0, rh - 2 * OuterMargin);
+
+        double slotW = availW / GridSize;
+        double slotH = availH / GridSize;
+
+        double tileW = Math.Max(0, slotW - 2 * Gap);
+        double tileH = Math.Max(0, slotH - 2 * Gap);
+        return (slotW, slotH, tileW, tileH);
+    }
+
+    private async void GamePage_KeyDown(object sender, KeyEventArgs e)
     {
         bool moved = false;
         List<AnimationInfo> animations = null;
 
+        var oldBoard = (int[,])board.Clone();
+
         switch (e.Key)
         {
-            case Key.Up:
-                animations = MoveUpCore(out moved);
-                break;
-            case Key.Down:
-                animations = MoveDownCore(out moved);
-                break;
-            case Key.Left:
-                animations = MoveLeftCore(out moved);
-                break;
-            case Key.Right:
-                animations = MoveRightCore(out moved);
-                break;
+            case Key.Up:    animations = MoveUpCore(out moved);    break;
+            case Key.Down:  animations = MoveDownCore(out moved);  break;
+            case Key.Left:  animations = MoveLeftCore(out moved);  break;
+            case Key.Right: animations = MoveRightCore(out moved); break;
         }
+        if (!moved) return;
 
-        if (moved)
-        {
-            UpdateUI(animations);
-            AddRandomNumber();
-            UpdateUI(null);
-            if (IsGameOver()) MessageBox.Show("游戏结束！");
-        }
+        await PlayMoveAnimationsAsync(oldBoard, animations);
+
+        AddRandomNumber();
+        await DrawCurrentBoardAsync();
+
+        if (IsGameOver()) MessageBox.Show("游戏结束！");
     }
-    
+
+
     // 左移核心逻辑
     private List<AnimationInfo> MoveLeftCore(out bool moved)
     {
@@ -218,6 +340,7 @@ public partial class GamePage : UserControl
                 board[row, col] = newRow[col];
             animations.AddRange(rowAnimations);
         }
+
         return animations;
     }
 
@@ -239,8 +362,10 @@ public partial class GamePage : UserControl
                 anim.FromCol = GridSize - 1 - anim.FromCol;
                 anim.ToCol = GridSize - 1 - anim.ToCol;
             }
+
             animations.AddRange(rowAnimations);
         }
+
         return animations;
     }
 
@@ -256,18 +381,22 @@ public partial class GamePage : UserControl
             if (colMoved) moved = true;
             for (int row = 0; row < GridSize; row++)
                 board[row, col] = newCol[row];
-            // 转换行列坐标
-            foreach (var anim in colAnimations)
+
+            // ✅ 只交换（上移）
+            foreach (var a in colAnimations)
             {
-                (anim.FromRow, anim.FromCol) = (anim.FromCol, anim.FromRow);
-                (anim.ToRow, anim.ToCol) = (anim.ToCol, anim.ToRow);
+                int colIdx = a.FromRow;
+                a.FromRow = a.FromCol;
+                a.FromCol = colIdx;
+                a.ToRow   = a.ToCol;
+                a.ToCol   = colIdx;
             }
             animations.AddRange(colAnimations);
         }
         return animations;
     }
 
-    // 下移核心逻辑
+// 下移核心逻辑
     private List<AnimationInfo> MoveDownCore(out bool moved)
     {
         moved = false;
@@ -279,13 +408,18 @@ public partial class GamePage : UserControl
             if (colMoved) moved = true;
             for (int row = 0; row < GridSize; row++)
                 board[GridSize - 1 - row, col] = newCol[row];
-            // 调整坐标
-            foreach (var anim in colAnimations)
+
+            // ✅ 只镜像（下移）
+            foreach (var a in colAnimations)
             {
-                anim.FromRow = GridSize - 1 - anim.FromRow;
-                anim.ToRow = GridSize - 1 - anim.ToRow;
-                (anim.FromRow, anim.FromCol) = (anim.FromCol, anim.FromRow);
-                (anim.ToRow, anim.ToCol) = (anim.ToCol, anim.ToRow);
+                int colIdx    = a.FromRow;
+                int fromIndex = a.FromCol;
+                int toIndex   = a.ToCol;
+
+                a.FromRow = GridSize - 1 - fromIndex;
+                a.FromCol = colIdx;
+                a.ToRow   = GridSize - 1 - toIndex;
+                a.ToCol   = colIdx;
             }
             animations.AddRange(colAnimations);
         }
@@ -309,6 +443,7 @@ public partial class GamePage : UserControl
                 moved = true;
                 animations.Add(new AnimationInfo(row, i, row, index, rowData[i], false));
             }
+
             rowData[index++] = rowData[i];
             if (index - 1 != i) rowData[i] = 0;
         }
@@ -335,13 +470,14 @@ public partial class GamePage : UserControl
                 moved = true;
                 animations.Add(new AnimationInfo(row, i, row, index, rowData[i], false));
             }
+
             rowData[index++] = rowData[i];
             if (index - 1 != i) rowData[i] = 0;
         }
 
         return (rowData, moved, animations);
     }
-    
+
     private bool IsGameOver()
     {
         for (int i = 0; i < 4; i++)
@@ -356,13 +492,45 @@ public partial class GamePage : UserControl
                     return false;
             }
         }
+
         return true;
     }
-    
+
+    // 动态计算单元格位置
+    private Size CalculateCellSize()
+    {
+        if (BackgroundGrid.ActualWidth <= 0 || BackgroundGrid.ActualHeight <= 0)
+            return new Size(100, 100); // 默认值
+
+        int cellMargin = 6;
+        double cellWidth = (BackgroundGrid.ActualWidth - 3 * 2 * cellMargin) / 4;
+        double cellHeight = (BackgroundGrid.ActualHeight - 3 * 2 * cellMargin) / 4;
+        return new Size(cellWidth, cellHeight);
+    }
+
+// 初始化背景网格
+    private void InitBackgroundGrid()
+    {
+        BackgroundCells.Clear();
+        for (int i = 0; i < GridSize * GridSize; i++)
+        {
+            BackgroundCells.Add(new BackgroundCell
+            {
+                Size = 100, // 初值占位，Loaded 后会被 RecomputeLayout 覆盖
+                Margin = new Thickness(Gap),
+                CornerRadius = new CornerRadius(6)
+            });
+        }
+    }
 
     private void AddOrUpdateTile(int row, int col, int value, bool isNew = false, bool isMerged = false)
     {
-        // 创建 UI
+        var (slotW, slotH, tileW, tileH) = GetLayout();
+        if (tileW <= 0 || tileH <= 0) return;
+
+        double left = col * slotW + Gap; // 槽位左 + Gap
+        double top = row * slotH + Gap; // 槽位上 + Gap
+
         var text = new TextBlock
         {
             Text = value.ToString(),
@@ -370,40 +538,119 @@ public partial class GamePage : UserControl
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = new SolidColorBrush(Colors.Black),
+            Foreground = Brushes.Black,
             TextAlignment = TextAlignment.Center
         };
 
         var border = new Border
         {
-            Width = TileSize,
-            Height = TileSize,
+            Width = tileW,
+            Height = tileH,
             Background = GetTileColor(value),
             CornerRadius = new CornerRadius(6),
             Child = text
         };
 
+        Canvas.SetLeft(border, left);
+        Canvas.SetTop(border, top);
+
         var translate = new TranslateTransform();
         var scale = new ScaleTransform(1, 1);
-        var transformGroup = new TransformGroup();
-        transformGroup.Children.Add(scale);
-        transformGroup.Children.Add(translate);
-        border.RenderTransform = transformGroup;
+        var tg = new TransformGroup();
+        tg.Children.Add(scale);
+        tg.Children.Add(translate);
+        border.RenderTransform = tg;
         border.RenderTransformOrigin = new Point(0.5, 0.5);
 
         TileCanvas.Children.Add(border);
-        Canvas.SetLeft(border, col * (TileSize + TileMargin * 2));
-        Canvas.SetTop(border, row * (TileSize + TileMargin * 2));
 
         var info = new TileInfo(border, translate, scale, row, col);
         tileControls[(row, col)] = info;
 
-        if (isNew)
-            PlayAppearAnimation(scale);
-        else if (isMerged)
-            PlayMergeAnimation(scale);
+        if (isNew) PlayAppearAnimation(scale);
+        else if (isMerged) PlayMergeAnimation(scale);
     }
-    
+
+    private void MoveTile(TileInfo tile, int toRow, int toCol)
+    {
+        var (slotW, slotH, tileW, tileH) = GetLayout();
+        if (tileW <= 0 || tileH <= 0) return;
+
+        double targetLeft = toCol * slotW + Gap;
+        double targetTop = toRow * slotH + Gap;
+
+        double currentLeft = Canvas.GetLeft(tile.TileBorder);
+        double currentTop = Canvas.GetTop(tile.TileBorder);
+
+        var animX = new DoubleAnimation
+        {
+            From = tile.Translate.X,
+            To = targetLeft - currentLeft,
+            Duration = TimeSpan.FromMilliseconds(150),
+            EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut }
+        };
+        var animY = new DoubleAnimation
+        {
+            From = tile.Translate.Y,
+            To = targetTop - currentTop,
+            Duration = TimeSpan.FromMilliseconds(150),
+            EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut }
+        };
+
+        animX.Completed += (s, e) =>
+        {
+            // 归位并清零偏移
+            Canvas.SetLeft(tile.TileBorder, targetLeft);
+            Canvas.SetTop(tile.TileBorder, targetTop);
+            tile.Translate.X = 0;
+            tile.Translate.Y = 0;
+        };
+
+        tile.Translate.BeginAnimation(TranslateTransform.XProperty, animX);
+        tile.Translate.BeginAnimation(TranslateTransform.YProperty, animY);
+
+        tile.Row = toRow;
+        tile.Col = toCol;
+    }
+
+    private async Task PlayMoveAnimationsAsync(int[,] oldBoard, List<AnimationInfo> animations)
+    {
+        // 1) 清场，用“旧棋盘”把源位置画出来（保证能找到 fromRow/fromCol 的 tile）
+        TileCanvas.Children.Clear();
+        tileControls.Clear();
+        for (int r = 0; r < GridSize; r++)
+        for (int c = 0; c < GridSize; c++)
+            if (oldBoard[r, c] != 0)
+                AddOrUpdateTile(r, c, oldBoard[r, c], isNew:false, isMerged:false);
+
+        // 2) 开始所有移动动画并等待全部完成（不用 Task.Delay 了）
+        var (slotW, slotH, tileW, tileH) = GetLayout();
+        var tasks = new List<Task>();
+        foreach (var anim in animations)
+        {
+            if (tileControls.TryGetValue((anim.FromRow, anim.FromCol), out var tile))
+            {
+                double targetLeft = anim.ToCol * slotW + Gap;
+                double targetTop  = anim.ToRow * slotH + Gap;
+                tasks.Add(AnimateMoveAsync(tile, targetLeft, targetTop, TimeSpan.FromMilliseconds(150)));
+            }
+        }
+        await Task.WhenAll(tasks);
+
+        // 3) 动画结束后，完整重绘“新棋盘”（避免旧 UI 残影）
+        await DrawCurrentBoardAsync();
+
+        // 4) 对发生合并的目标格，做一次弹跳（此时新棋盘的目标格已存在）
+        foreach (var anim in animations.Where(a => a.IsMerged))
+        {
+            if (tileControls.TryGetValue((anim.ToRow, anim.ToCol), out var mergedTile))
+            {
+                PlayMergeAnimation(mergedTile.Scale);
+            }
+        }
+    }
+
+
     private void PlayAppearAnimation(ScaleTransform scale)
     {
         var appearAnim = new DoubleAnimation
@@ -432,33 +679,52 @@ public partial class GamePage : UserControl
         scale.BeginAnimation(ScaleTransform.ScaleYProperty, mergeAnim);
     }
 
-    
-    private void MoveTile(TileInfo tile, int toRow, int toCol)
+
+    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e) => RecomputeLayout();
+
+    private void RecomputeLayout()
     {
-        double deltaX = (toCol - tile.Col) * (TileSize + TileMargin * 2);
-        double deltaY = (toRow - tile.Row) * (TileSize + TileMargin * 2);
-
-        var animX = new DoubleAnimation
+        double rw = Root.ActualWidth, rh = Root.ActualHeight;
+        if (rw <= 0 || rh <= 0)
         {
-            To = deltaX,
-            Duration = TimeSpan.FromMilliseconds(100),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        tile.Translate.BeginAnimation(TranslateTransform.XProperty, animX);
+            Dispatcher.BeginInvoke((Action)RecomputeLayout,
+                System.Windows.Threading.DispatcherPriority.Loaded);
+            return;
+        }
 
-        var animY = new DoubleAnimation
+        // 可用区域（扣掉 ItemsControl/Canvas 的外边距）
+        double availW = Math.Max(0, rw - 2 * OuterMargin);
+        double availH = Math.Max(0, rh - 2 * OuterMargin);
+
+        // 每个槽位的宽/高（UniformGrid 均分）
+        double slotW = availW / GridSize;
+        double slotH = availH / GridSize;
+
+        // 数字方块的实际宽/高（槽位内再扣去左右/上下的 Gap）
+        double tileW = Math.Max(0, slotW - 2 * Gap);
+        double tileH = Math.Max(0, slotH - 2 * Gap);
+
+        // 背景格子不再需要 Size 属性（它自己会拉伸），只保留 Margin 即可
+        foreach (var cell in BackgroundCells)
+            cell.Margin = new Thickness(Gap);
+
+        // 同步所有前景块
+        foreach (var entry in tileControls.Values)
         {
-            To = deltaY,
-            Duration = TimeSpan.FromMilliseconds(100),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        tile.Translate.BeginAnimation(TranslateTransform.YProperty, animY);
+            double left = entry.Col * slotW + Gap;
+            double top = entry.Row * slotH + Gap;
 
-        // 更新记录位置
-        tile.Row = toRow;
-        tile.Col = toCol;
+            Canvas.SetLeft(entry.TileBorder, left);
+            Canvas.SetTop(entry.TileBorder, top);
+
+            entry.TileBorder.Width = tileW;
+            entry.TileBorder.Height = tileH;
+
+            entry.Translate.X = 0;
+            entry.Translate.Y = 0;
+        }
     }
-    
+
 
     public void InvokeKeyDown(KeyEventArgs keyEventArgs)
     {
