@@ -253,10 +253,10 @@ public partial class GamePage : UserControl
 
         switch (e.Key)
         {
-            case Key.Up:    animations = MoveUpCore(out moved);    break;
-            case Key.Down:  animations = MoveDownCore(out moved);  break;
-            case Key.Left:  animations = MoveLeftCore(out moved);  break;
-            case Key.Right: animations = MoveRightCore(out moved); break;
+            case Key.Up or Key.W:    animations = MoveUpCore(out moved);    break;
+            case Key.Down or Key.S:  animations = MoveDownCore(out moved);  break;
+            case Key.Left or Key.A:  animations = MoveLeftCore(out moved);  break;
+            case Key.Right or Key.D: animations = MoveRightCore(out moved); break;
         }
         if (!moved) return;
 
