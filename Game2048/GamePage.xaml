@@ -5,49 +5,102 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="clr-namespace:Game2048"
              mc:Ignorable="d"
-             d:DesignHeight="500" d:DesignWidth="500" KeyDown="GamePage_KeyDown"
-             Focusable="True">
-    
-    <Grid x:Name="Root" Background="#FAF8EF" SizeChanged="OnRootSizeChanged">
-        <!-- 背景 4x4 灰色格子，Margin 与下方 Canvas 一致 -->
-        <ItemsControl x:Name="BackgroundGrid"
-                      Margin="16"
-                      HorizontalAlignment="Stretch"
-                      VerticalAlignment="Stretch"
-                      ItemsSource="{Binding BackgroundCells}">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <UniformGrid Rows="4" Columns="4"/>
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
+             d:DesignHeight="500" d:DesignWidth="500"
+             Focusable="False">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"></ColumnDefinition>
+            <ColumnDefinition Width="Auto"></ColumnDefinition>
+        </Grid.ColumnDefinitions>
+        <Grid x:Name="Root" Background="#FAF8EF" SizeChanged="OnRootSizeChanged"
+              KeyboardNavigation.TabNavigation="None"
+              KeyboardNavigation.ControlTabNavigation="None"
+              KeyboardNavigation.DirectionalNavigation="None"
+              FocusVisualStyle="{x:Null}">
+            <!-- 背景 4x4 灰色格子，Margin 与下方 Canvas 一致 -->
+            <ItemsControl x:Name="BackgroundGrid"
+                          Margin="16"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          ItemsSource="{Binding BackgroundCells}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Rows="4" Columns="4"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
 
-            <!-- 关键：让每个项容器把内容拉伸 -->
-            <ItemsControl.ItemContainerStyle>
-                <Style TargetType="ContentPresenter">
-                    <Setter Property="HorizontalAlignment" Value="Stretch"/>
-                    <Setter Property="VerticalAlignment"   Value="Stretch"/>
-                </Style>
-            </ItemsControl.ItemContainerStyle>
+                <!-- 关键：让每个项容器把内容拉伸 -->
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                        <Setter Property="VerticalAlignment"   Value="Stretch"/>
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
 
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Border Background="#CDC1B4"
-                            CornerRadius="6"
-                            Margin="{Binding Margin}"
-                            HorizontalAlignment="Stretch"
-                            VerticalAlignment="Stretch"/>
-                    <!-- 不要再绑定 Width/Height！ -->
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="#CDC1B4"
+                                CornerRadius="6"
+                                Margin="{Binding Margin}"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"/>
+                        <!-- 不要再绑定 Width/Height！ -->
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
 
-        <!-- 前景数字方块，Margin 必须与上面一致 -->
-        <Canvas x:Name="TileCanvas"
-                Margin="16"
-                HorizontalAlignment="Stretch"
-                VerticalAlignment="Stretch"
-                IsHitTestVisible="False"/>
+            <!-- 前景数字方块，Margin 必须与上面一致 -->
+            <Canvas x:Name="TileCanvas"
+                    Margin="16"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    IsHitTestVisible="True"
+                    Focusable="False"/>
+        </Grid>
+        <Grid Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Top">
+            <StackPanel>
+                <TextBlock Text="2048"
+                           FontSize="32"
+                           FontWeight="Bold"
+                           Foreground="#776E65"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,20"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
+                    <TextBlock Text="Score: "
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="#776E65"/>
+                    <TextBlock x:Name="ScoreTextBlock"
+                               Text="0"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="#776E65"/>
+                </StackPanel>
+                <Button Content="New Game"
+                        Padding="10,5"
+                        Background="#8F7A66"
+                        Foreground="White"
+                        FontWeight="Bold"
+                        Click="NewGameButton_Click"/>
+                
+                <Button Content="Undo"
+                        Margin="0,10,0,0"
+                        Padding="10,5"
+                        Background="#8F7A66"
+                        Foreground="White"
+                        FontWeight="Bold"
+                        Click="UndoButton_Click"/>
+                
+                <Button Content="Break"
+                        Margin="0,10,0,0"
+                        Padding="10,5"
+                        Background="#8F7A66"
+                        Foreground="White"
+                        FontWeight="Bold"
+                        Click="BreakButton_Click"/>
+            </StackPanel>
+            
+        </Grid>
     </Grid>
-
 </UserControl>

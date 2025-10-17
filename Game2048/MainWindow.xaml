@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Game2048"
         mc:Ignorable="d"
+        WindowStartupLocation="CenterScreen"
         Title="2048" Height="500" Width="500" KeyDown="MainWindow_OnKeyDown">
     <Grid Background="#FAF8EF" Margin="10" >
         <local:GamePage x:Name="GamePage" Focusable="True"></local:GamePage>

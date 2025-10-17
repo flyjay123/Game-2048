@@ -24,8 +24,18 @@ public partial class GamePage : UserControl
     private const double Gap = 6; // 单个格子四周间隙（背景 Border.Margin="6"）
     private const double OuterMargin = 16; // 背景 ItemsControl 与 Canvas 的统一外边距
 
-
-    private int[,] board = new int[GridSize, GridSize];
+    private int[,] oldBoard;
+    
+    private int[,] currentBoard = new int[GridSize, GridSize];
+    private int[,] CurrentBoard
+    {
+        get => currentBoard;
+        set
+        {
+            oldBoard = currentBoard;
+            currentBoard = value;
+        }
+    } 
 
     // 添加背景网格数据绑定
     public ObservableCollection<BackgroundCell> BackgroundCells { get; }
@@ -139,7 +149,7 @@ public partial class GamePage : UserControl
         {
             for (int c = 0; c < GridSize; c++)
             {
-                int v = board[r, c];
+                int v = CurrentBoard[r, c];
                 if (v == 0) continue;
                 AddOrUpdateTile(r, c, v, isNew:false, isMerged:false); // 直接画当前棋盘
             }
@@ -154,28 +164,12 @@ public partial class GamePage : UserControl
         {
             int x = rnd.Next(4);
             int y = rnd.Next(4);
-            if (board[x, y] == 0)
+            if (CurrentBoard[x, y] == 0)
             {
-                board[x, y] = rnd.Next(0, 10) == 0 ? 4 : 2;
+                CurrentBoard[x, y] = rnd.Next(0, 10) == 0 ? 4 : 2;
                 break;
             }
         }
-    }
-
-    private void PrintBoardToConsole()
-    {
-        Console.WriteLine("==== 当前棋盘 ====");
-        for (int i = 0; i < GridSize; i++)
-        {
-            for (int j = 0; j < GridSize; j++)
-            {
-                Console.Write($"{board[i, j],4}"); // 宽度对齐
-            }
-
-            Console.WriteLine();
-        }
-
-        Console.WriteLine("=================");
     }
     
     private Task AnimateMoveAsync(TileInfo tile, double targetLeft, double targetTop, TimeSpan duration)
@@ -223,51 +217,6 @@ public partial class GamePage : UserControl
         return tcs.Task;
     }
 
-
-
-    private async void UpdateUI(List<AnimationInfo> animations)
-    {
-        TileCanvas.Children.Clear();
-        tileControls.Clear();
-
-        // 标记需要移除的合并源块
-        var mergedSources = animations?
-            .Where(a => a.IsMerged)
-            .Select(a => (a.FromRow, a.FromCol))
-            .ToList();
-
-        for (int i = 0; i < GridSize; i++)
-        {
-            for (int j = 0; j < GridSize; j++)
-            {
-                int val = board[i, j];
-                if (val == 0) continue;
-
-                // 跳过被合并的源块
-                if (mergedSources?.Contains((i, j)) == true) continue;
-
-                bool isMerged = animations?.Any(a => a.ToRow == i && a.ToCol == j && a.IsMerged) == true;
-                bool isNew = animations == null || animations.All(a => !(a.ToRow == i && a.ToCol == j));
-
-                AddOrUpdateTile(i, j, val, isNew, isMerged);
-            }
-        }
-
-        if (animations != null)
-        {
-            foreach (var anim in animations)
-            {
-                if (tileControls.TryGetValue((anim.FromRow, anim.FromCol), out var tile))
-                {
-                    MoveTile(tile, anim.ToRow, anim.ToCol);
-                }
-            }
-        }
-
-        await Task.Delay(150);
-    }
-
-
     private SolidColorBrush GetTileColor(int val)
     {
         return val switch
@@ -306,7 +255,7 @@ public partial class GamePage : UserControl
         bool moved = false;
         List<AnimationInfo> animations = null;
 
-        var oldBoard = (int[,])board.Clone();
+        oldBoard = (int[,])CurrentBoard.Clone();
 
         switch (e.Key)
         {
@@ -317,7 +266,7 @@ public partial class GamePage : UserControl
         }
         if (!moved) return;
 
-        await PlayMoveAnimationsAsync(oldBoard, animations);
+        await PlayMoveAnimationsAsync(animations);
 
         AddRandomNumber();
         await DrawCurrentBoardAsync();
@@ -333,11 +282,11 @@ public partial class GamePage : UserControl
         var animations = new List<AnimationInfo>();
         for (int row = 0; row < GridSize; row++)
         {
-            int[] original = Enumerable.Range(0, GridSize).Select(col => board[row, col]).ToArray();
+            int[] original = Enumerable.Range(0, GridSize).Select(col => CurrentBoard[row, col]).ToArray();
             var (newRow, rowMoved, rowAnimations) = ProcessRowLeft(original, row);
             if (rowMoved) moved = true;
             for (int col = 0; col < GridSize; col++)
-                board[row, col] = newRow[col];
+                CurrentBoard[row, col] = newRow[col];
             animations.AddRange(rowAnimations);
         }
 
@@ -351,11 +300,11 @@ public partial class GamePage : UserControl
         var animations = new List<AnimationInfo>();
         for (int row = 0; row < GridSize; row++)
         {
-            int[] original = Enumerable.Range(0, GridSize).Select(col => board[row, GridSize - 1 - col]).ToArray();
+            int[] original = Enumerable.Range(0, GridSize).Select(col => CurrentBoard[row, GridSize - 1 - col]).ToArray();
             var (newRow, rowMoved, rowAnimations) = ProcessRowLeft(original, row);
             if (rowMoved) moved = true;
             for (int col = 0; col < GridSize; col++)
-                board[row, GridSize - 1 - col] = newRow[col];
+                CurrentBoard[row, GridSize - 1 - col] = newRow[col];
             // 调整动画坐标
             foreach (var anim in rowAnimations)
             {
@@ -376,11 +325,11 @@ public partial class GamePage : UserControl
         var animations = new List<AnimationInfo>();
         for (int col = 0; col < GridSize; col++)
         {
-            int[] original = Enumerable.Range(0, GridSize).Select(row => board[row, col]).ToArray();
+            int[] original = Enumerable.Range(0, GridSize).Select(row => CurrentBoard[row, col]).ToArray();
             var (newCol, colMoved, colAnimations) = ProcessRowLeft(original, col);
             if (colMoved) moved = true;
             for (int row = 0; row < GridSize; row++)
-                board[row, col] = newCol[row];
+                CurrentBoard[row, col] = newCol[row];
 
             // ✅ 只交换（上移）
             foreach (var a in colAnimations)
@@ -403,11 +352,11 @@ public partial class GamePage : UserControl
         var animations = new List<AnimationInfo>();
         for (int col = 0; col < GridSize; col++)
         {
-            int[] original = Enumerable.Range(0, GridSize).Select(row => board[GridSize - 1 - row, col]).ToArray();
+            int[] original = Enumerable.Range(0, GridSize).Select(row => CurrentBoard[GridSize - 1 - row, col]).ToArray();
             var (newCol, colMoved, colAnimations) = ProcessRowLeft(original, col);
             if (colMoved) moved = true;
             for (int row = 0; row < GridSize; row++)
-                board[GridSize - 1 - row, col] = newCol[row];
+                CurrentBoard[GridSize - 1 - row, col] = newCol[row];
 
             // ✅ 只镜像（下移）
             foreach (var a in colAnimations)
@@ -484,11 +433,11 @@ public partial class GamePage : UserControl
         {
             for (int j = 0; j < 4; j++)
             {
-                if (board[i, j] == 0)
+                if (CurrentBoard[i, j] == 0)
                     return false;
-                if (j < 3 && board[i, j] == board[i, j + 1])
+                if (j < 3 && CurrentBoard[i, j] == CurrentBoard[i, j + 1])
                     return false;
-                if (i < 3 && board[i, j] == board[i + 1, j])
+                if (i < 3 && CurrentBoard[i, j] == CurrentBoard[i + 1, j])
                     return false;
             }
         }
@@ -613,7 +562,7 @@ public partial class GamePage : UserControl
         tile.Col = toCol;
     }
 
-    private async Task PlayMoveAnimationsAsync(int[,] oldBoard, List<AnimationInfo> animations)
+    private async Task PlayMoveAnimationsAsync(List<AnimationInfo> animations)
     {
         // 1) 清场，用“旧棋盘”把源位置画出来（保证能找到 fromRow/fromCol 的 tile）
         TileCanvas.Children.Clear();
@@ -684,6 +633,14 @@ public partial class GamePage : UserControl
 
     private void RecomputeLayout()
     {
+        if (Root.ActualWidth > Root.ActualHeight)
+        {
+            Root.Width = Root.ActualHeight;
+        }
+        else
+        {
+            Root.Height = Root.ActualWidth;
+        }
         double rw = Root.ActualWidth, rh = Root.ActualHeight;
         if (rw <= 0 || rh <= 0)
         {
@@ -732,5 +689,62 @@ public partial class GamePage : UserControl
         {
             GamePage_KeyDown(this, keyEventArgs);
         }
+    }
+
+    private void NewGameButton_Click(object sender, RoutedEventArgs e)
+    {
+        CurrentBoard = new int[GridSize, GridSize];
+        TileCanvas.Children.Clear();
+        tileControls.Clear();
+        AddRandomNumber();
+        AddRandomNumber();
+        _ = DrawCurrentBoardAsync();
+    }
+
+    private void UndoButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (oldBoard != null)
+        {
+            CurrentBoard = (int[,])oldBoard.Clone();
+            TileCanvas.Children.Clear();
+            tileControls.Clear();
+            _ = DrawCurrentBoardAsync();
+        }
+    }
+
+    private void BreakButton_Click(object sender, RoutedEventArgs e)
+    {
+        // 改变鼠标指针为选择工具
+        Mouse.OverrideCursor = Cursors.Cross;
+
+        // 定义事件处理器
+        void MouseHandler(object s, MouseButtonEventArgs args)
+        {
+            Point clickPoint = args.GetPosition(TileCanvas);
+            foreach (var entry in tileControls.Values.ToList())
+            {
+                double left = Canvas.GetLeft(entry.TileBorder);
+                double top = Canvas.GetTop(entry.TileBorder);
+                double right = left + entry.TileBorder.Width;
+                double bottom = top + entry.TileBorder.Height;
+
+                if (clickPoint.X >= left && clickPoint.X <= right &&
+                    clickPoint.Y >= top && clickPoint.Y <= bottom)
+                {
+                    // 删除数字方块
+                    CurrentBoard[entry.Row, entry.Col] = 0;
+                    TileCanvas.Children.Remove(entry.TileBorder);
+                    tileControls.Remove((entry.Row, entry.Col));
+                    break;
+                }
+            }
+
+            // 恢复默认鼠标指针并解绑事件
+            Mouse.OverrideCursor = null;
+            TileCanvas.MouseLeftButtonDown -= MouseHandler;
+        }
+
+        // 绑定事件处理器
+        TileCanvas.MouseLeftButtonDown += MouseHandler;
     }
 }
