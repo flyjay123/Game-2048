@@ -23,6 +23,9 @@ public partial class GamePage : UserControl
     private const int GridSize = 4;
     private const double Gap = 6; // 单个格子四周间隙（背景 Border.Margin="6"）
     private const double OuterMargin = 16; // 背景 ItemsControl 与 Canvas 的统一外边距
+    
+    private int score = 0;
+    private int prevScore = 0;   // 可选：用于 Undo
 
     private int[,] oldBoard;
     
@@ -49,16 +52,6 @@ public partial class GamePage : UserControl
 
         private SolidColorBrush _backgroundColor =
             new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CDC1B4"));
-
-        public SolidColorBrush BackgroundColor
-        {
-            get => _backgroundColor;
-            set
-            {
-                _backgroundColor = value;
-                OnPropertyChanged(nameof(BackgroundColor));
-            }
-        }
 
         public double Size
         {
@@ -256,6 +249,7 @@ public partial class GamePage : UserControl
         List<AnimationInfo> animations = null;
 
         oldBoard = (int[,])CurrentBoard.Clone();
+        prevScore = score; // 👈 记录上次分数，Undo 用
 
         switch (e.Key)
         {
@@ -265,6 +259,14 @@ public partial class GamePage : UserControl
             case Key.Right: animations = MoveRightCore(out moved); break;
         }
         if (!moved) return;
+
+        // ✅ 计算本次合并得分（所有合并产生的新值之和）
+        int gained = animations.Where(a => a.IsMerged).Sum(a => a.NewValue);
+        if (gained > 0)
+        {
+            score += gained;
+            ScoreTextBlock.Text = score.ToString();
+        }
 
         await PlayMoveAnimationsAsync(animations);
 
@@ -445,18 +447,6 @@ public partial class GamePage : UserControl
         return true;
     }
 
-    // 动态计算单元格位置
-    private Size CalculateCellSize()
-    {
-        if (BackgroundGrid.ActualWidth <= 0 || BackgroundGrid.ActualHeight <= 0)
-            return new Size(100, 100); // 默认值
-
-        int cellMargin = 6;
-        double cellWidth = (BackgroundGrid.ActualWidth - 3 * 2 * cellMargin) / 4;
-        double cellHeight = (BackgroundGrid.ActualHeight - 3 * 2 * cellMargin) / 4;
-        return new Size(cellWidth, cellHeight);
-    }
-
 // 初始化背景网格
     private void InitBackgroundGrid()
     {
@@ -518,48 +508,6 @@ public partial class GamePage : UserControl
 
         if (isNew) PlayAppearAnimation(scale);
         else if (isMerged) PlayMergeAnimation(scale);
-    }
-
-    private void MoveTile(TileInfo tile, int toRow, int toCol)
-    {
-        var (slotW, slotH, tileW, tileH) = GetLayout();
-        if (tileW <= 0 || tileH <= 0) return;
-
-        double targetLeft = toCol * slotW + Gap;
-        double targetTop = toRow * slotH + Gap;
-
-        double currentLeft = Canvas.GetLeft(tile.TileBorder);
-        double currentTop = Canvas.GetTop(tile.TileBorder);
-
-        var animX = new DoubleAnimation
-        {
-            From = tile.Translate.X,
-            To = targetLeft - currentLeft,
-            Duration = TimeSpan.FromMilliseconds(150),
-            EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut }
-        };
-        var animY = new DoubleAnimation
-        {
-            From = tile.Translate.Y,
-            To = targetTop - currentTop,
-            Duration = TimeSpan.FromMilliseconds(150),
-            EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut }
-        };
-
-        animX.Completed += (s, e) =>
-        {
-            // 归位并清零偏移
-            Canvas.SetLeft(tile.TileBorder, targetLeft);
-            Canvas.SetTop(tile.TileBorder, targetTop);
-            tile.Translate.X = 0;
-            tile.Translate.Y = 0;
-        };
-
-        tile.Translate.BeginAnimation(TranslateTransform.XProperty, animX);
-        tile.Translate.BeginAnimation(TranslateTransform.YProperty, animY);
-
-        tile.Row = toRow;
-        tile.Col = toCol;
     }
 
     private async Task PlayMoveAnimationsAsync(List<AnimationInfo> animations)
@@ -696,6 +644,8 @@ public partial class GamePage : UserControl
         CurrentBoard = new int[GridSize, GridSize];
         TileCanvas.Children.Clear();
         tileControls.Clear();
+        score = 0;
+        ScoreTextBlock.Text = "0";
         AddRandomNumber();
         AddRandomNumber();
         _ = DrawCurrentBoardAsync();
@@ -706,6 +656,10 @@ public partial class GamePage : UserControl
         if (oldBoard != null)
         {
             CurrentBoard = (int[,])oldBoard.Clone();
+            var tmp = score;
+            score = prevScore;
+            ScoreTextBlock.Text = score.ToString();
+            prevScore = tmp;
             TileCanvas.Children.Clear();
             tileControls.Clear();
             _ = DrawCurrentBoardAsync();
