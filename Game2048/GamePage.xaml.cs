@@ -23,6 +23,8 @@ public partial class GamePage : UserControl
     private const int GridSize = 4;
     private const double Gap = 6; // 单个格子四周间隙（背景 Border.Margin="6"）
     private const double OuterMargin = 16; // 背景 ItemsControl 与 Canvas 的统一外边距
+    private const int AnimationDurationMs = 150;
+    private const int MergeAnimationDurationMs = 100;
     
     private int score = 0;
     private int prevScore = 0;   // 可选：用于 Undo
@@ -33,12 +35,12 @@ public partial class GamePage : UserControl
     private int[,] CurrentBoard
     {
         get => currentBoard;
-        set
-        {
-            oldBoard = currentBoard;
-            currentBoard = value;
-        }
+        set => currentBoard = value;
     } 
+
+    private readonly Random _rnd = new();
+    private bool _isAnimating = false;
+    private bool _isGameOver = false;
 
     // 添加背景网格数据绑定
     public ObservableCollection<BackgroundCell> BackgroundCells { get; }
@@ -152,23 +154,25 @@ public partial class GamePage : UserControl
 
     private void AddRandomNumber()
     {
-        Random rnd = new();
-        while (true)
+        var emptySlots = new List<(int r, int c)>();
+        for (int r = 0; r < GridSize; r++)
         {
-            int x = rnd.Next(4);
-            int y = rnd.Next(4);
-            if (CurrentBoard[x, y] == 0)
+            for (int c = 0; c < GridSize; c++)
             {
-                CurrentBoard[x, y] = rnd.Next(0, 10) == 0 ? 4 : 2;
-                break;
+                if (CurrentBoard[r, c] == 0)
+                    emptySlots.Add((r, c));
             }
+        }
+
+        if (emptySlots.Count > 0)
+        {
+            var slot = emptySlots[_rnd.Next(emptySlots.Count)];
+            CurrentBoard[slot.r, slot.c] = _rnd.Next(0, 10) == 0 ? 4 : 2;
         }
     }
     
-    private Task AnimateMoveAsync(TileInfo tile, double targetLeft, double targetTop, TimeSpan duration)
+    private void AnimateMove(TileInfo tile, double targetLeft, double targetTop, TimeSpan duration)
     {
-        var tcs = new TaskCompletionSource<bool>();
-
         double currentLeft = Canvas.GetLeft(tile.TileBorder);
         double currentTop  = Canvas.GetTop(tile.TileBorder);
 
@@ -187,27 +191,8 @@ public partial class GamePage : UserControl
             EasingFunction = new QuinticEase { EasingMode = EasingMode.EaseOut }
         };
 
-        int done = 0;
-        void completeOne()
-        {
-            if (Interlocked.Increment(ref done) == 2)
-            {
-                // 动画结束：归位并清零偏移
-                Canvas.SetLeft(tile.TileBorder, targetLeft);
-                Canvas.SetTop(tile.TileBorder,  targetTop);
-                tile.Translate.X = 0;
-                tile.Translate.Y = 0;
-                tcs.TrySetResult(true);
-            }
-        }
-
-        animX.Completed += (s, e) => completeOne();
-        animY.Completed += (s, e) => completeOne();
-
         tile.Translate.BeginAnimation(TranslateTransform.XProperty, animX);
         tile.Translate.BeginAnimation(TranslateTransform.YProperty, animY);
-
-        return tcs.Task;
     }
 
     private SolidColorBrush GetTileColor(int val)
@@ -509,17 +494,16 @@ public partial class GamePage : UserControl
 
         // 2) 开始所有移动动画并等待全部完成（不用 Task.Delay 了）
         var (slotW, slotH, tileW, tileH) = GetLayout();
-        var tasks = new List<Task>();
         foreach (var anim in animations)
         {
             if (tileControls.TryGetValue((anim.FromRow, anim.FromCol), out var tile))
             {
                 double targetLeft = anim.ToCol * slotW + Gap;
                 double targetTop  = anim.ToRow * slotH + Gap;
-                tasks.Add(AnimateMoveAsync(tile, targetLeft, targetTop, TimeSpan.FromMilliseconds(150)));
+                AnimateMove(tile, targetLeft, targetTop, TimeSpan.FromMilliseconds(AnimationDurationMs));
             }
         }
-        await Task.WhenAll(tasks);
+        await Task.Delay(AnimationDurationMs + 10);
 
         // 3) 动画结束后，完整重绘“新棋盘”（避免旧 UI 残影）
         await DrawCurrentBoardAsync();
@@ -541,7 +525,7 @@ public partial class GamePage : UserControl
         {
             From = 0,
             To = 1,
-            Duration = TimeSpan.FromMilliseconds(150),
+            Duration = TimeSpan.FromMilliseconds(AnimationDurationMs),
             EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut }
         };
         scale.BeginAnimation(ScaleTransform.ScaleXProperty, appearAnim);
@@ -555,7 +539,7 @@ public partial class GamePage : UserControl
             From = 1.0,
             To = 1.2,
             AutoReverse = true,
-            Duration = TimeSpan.FromMilliseconds(100),
+            Duration = TimeSpan.FromMilliseconds(MergeAnimationDurationMs),
             EasingFunction = new CircleEase { EasingMode = EasingMode.EaseOut },
             FillBehavior = FillBehavior.Stop // 动画结束后恢复原始值
         };
@@ -633,6 +617,8 @@ public partial class GamePage : UserControl
         tileControls.Clear();
         score = 0;
         ScoreTextBlock.Text = "0";
+        _isGameOver = false;
+        _isAnimating = false;
         AddRandomNumber();
         AddRandomNumber();
         _ = DrawCurrentBoardAsync();
@@ -653,39 +639,78 @@ public partial class GamePage : UserControl
         }
     }
 
+    // 记录 Break 模式的事件处理器，防止泄漏和重复绑定
+    private MouseButtonEventHandler _breakModeMouseHandler;
+    private bool _isBreakMode;
+
     private void BreakButton_Click(object sender, RoutedEventArgs e)
     {
-        // 改变鼠标指针为选择工具
-        Mouse.OverrideCursor = Cursors.Cross;
-
-        // 定义事件处理器
-        void MouseHandler(object s, MouseButtonEventArgs args)
+        if (_isBreakMode)
         {
-            Point clickPoint = args.GetPosition(TileCanvas);
-            foreach (var entry in tileControls.Values.ToList())
-            {
-                double left = Canvas.GetLeft(entry.TileBorder);
-                double top = Canvas.GetTop(entry.TileBorder);
-                double right = left + entry.TileBorder.Width;
-                double bottom = top + entry.TileBorder.Height;
-
-                if (clickPoint.X >= left && clickPoint.X <= right &&
-                    clickPoint.Y >= top && clickPoint.Y <= bottom)
-                {
-                    // 删除数字方块
-                    CurrentBoard[entry.Row, entry.Col] = 0;
-                    TileCanvas.Children.Remove(entry.TileBorder);
-                    tileControls.Remove((entry.Row, entry.Col));
-                    break;
-                }
-            }
-
-            // 恢复默认鼠标指针并解绑事件
-            Mouse.OverrideCursor = null;
-            TileCanvas.MouseLeftButtonDown -= MouseHandler;
+            ExitBreakMode();
+            return;
         }
 
-        // 绑定事件处理器
-        TileCanvas.MouseLeftButtonDown += MouseHandler;
+        _isBreakMode = true;
+        Mouse.OverrideCursor = Cursors.Cross;
+
+        _breakModeMouseHandler = BreakModeMouseHandler;
+        TileCanvas.MouseLeftButtonDown += _breakModeMouseHandler;
+
+        // 监听鼠标离开窗口时自动退出 Break 模式
+        var window = Window.GetWindow(this);
+        if (window != null)
+        {
+            window.Deactivated += OnWindowDeactivated;
+            window.MouseLeave += OnWindowMouseLeave;
+        }
     }
+
+    private void BreakModeMouseHandler(object sender, MouseButtonEventArgs e)
+    {
+        Point clickPoint = e.GetPosition(TileCanvas);
+        foreach (var entry in tileControls.Values.ToList())
+        {
+            double left = Canvas.GetLeft(entry.TileBorder);
+            double top = Canvas.GetTop(entry.TileBorder);
+            double right = left + entry.TileBorder.Width;
+            double bottom = top + entry.TileBorder.Height;
+
+            if (clickPoint.X >= left && clickPoint.X <= right &&
+                clickPoint.Y >= top && clickPoint.Y <= bottom)
+            {
+                CurrentBoard[entry.Row, entry.Col] = 0;
+                TileCanvas.Children.Remove(entry.TileBorder);
+                tileControls.Remove((entry.Row, entry.Col));
+                break;
+            }
+        }
+
+        ExitBreakMode();
+    }
+
+    private void ExitBreakMode()
+    {
+        if (!_isBreakMode) return;
+
+        _isBreakMode = false;
+        Mouse.OverrideCursor = null;
+
+        if (_breakModeMouseHandler != null)
+        {
+            TileCanvas.MouseLeftButtonDown -= _breakModeMouseHandler;
+            _breakModeMouseHandler = null;
+        }
+
+        var window = Window.GetWindow(this);
+        if (window != null)
+        {
+            window.Deactivated -= OnWindowDeactivated;
+            window.MouseLeave -= OnWindowMouseLeave;
+        }
+    }
+
+    private void OnWindowDeactivated(object sender, EventArgs e) => ExitBreakMode();
+
+    private void OnWindowMouseLeave(object sender, MouseEventArgs e) => ExitBreakMode();
 }
