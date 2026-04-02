@@ -380,50 +380,37 @@ public partial class GamePage : UserControl
     // 通用行处理逻辑（左移方向）
     private (int[] newRow, bool moved, List<AnimationInfo> animations) ProcessRowLeft(int[] original, int row)
     {
-        int[] rowData = (int[])original.Clone();
+        int[] rowData = new int[original.Length];
         bool moved = false;
         var animations = new List<AnimationInfo>();
+        
+        int insertPos = 0;
+        bool lastMerged = false;
 
-        // 压缩
-        int index = 0;
-        for (int i = 0; i < rowData.Length; i++)
+        for (int i = 0; i < original.Length; i++)
         {
-            if (rowData[i] == 0) continue;
-            if (i != index)
+            if (original[i] == 0) continue;
+
+            if (insertPos > 0 && rowData[insertPos - 1] == original[i] && !lastMerged)
             {
+                // 合并
+                rowData[insertPos - 1] *= 2;
+                animations.Add(new AnimationInfo(row, i, row, insertPos - 1, rowData[insertPos - 1], true));
                 moved = true;
-                animations.Add(new AnimationInfo(row, i, row, index, rowData[i], false));
+                lastMerged = true;
             }
-
-            rowData[index++] = rowData[i];
-            if (index - 1 != i) rowData[i] = 0;
-        }
-
-        // 合并
-        for (int i = 0; i < rowData.Length - 1; i++)
-        {
-            if (rowData[i] != 0 && rowData[i] == rowData[i + 1])
+            else
             {
-                rowData[i] *= 2;
-                animations.Add(new AnimationInfo(row, i + 1, row, i, rowData[i], true));
-                rowData[i + 1] = 0;
-                moved = true;
+                // 移动或保持不动
+                rowData[insertPos] = original[i];
+                if (i != insertPos)
+                {
+                    animations.Add(new AnimationInfo(row, i, row, insertPos, original[i], false));
+                    moved = true;
+                }
+                insertPos++;
+                lastMerged = false;
             }
-        }
-
-        // 再次压缩
-        index = 0;
-        for (int i = 0; i < rowData.Length; i++)
-        {
-            if (rowData[i] == 0) continue;
-            if (i != index)
-            {
-                moved = true;
-                animations.Add(new AnimationInfo(row, i, row, index, rowData[i], false));
-            }
-
-            rowData[index++] = rowData[i];
-            if (index - 1 != i) rowData[i] = 0;
         }
 
         return (rowData, moved, animations);
