@@ -35,12 +35,33 @@ public partial class GamePage : UserControl
     private int[,] CurrentBoard
     {
         get => currentBoard;
-        set => currentBoard = value;
+        set
+        {
+            oldBoard = (int[,])currentBoard.Clone();  // ✅ 修复：正确克隆而不是引用别名
+            currentBoard = value;
+        }
     } 
 
-    private readonly Random _rnd = new();
+    private static readonly Random _rnd = new();  // ✅ 修复：类级单例防止种子碰撞
     private bool _isAnimating = false;
     private bool _isGameOver = false;
+    
+    // ✅ 优化：颜色缓存，避免重复创建 SolidColorBrush 对象
+    private static readonly Dictionary<int, SolidColorBrush> TileColorCache = new()
+    {
+        { 2, new SolidColorBrush(Color.FromRgb(238, 228, 218)) },
+        { 4, new SolidColorBrush(Color.FromRgb(237, 224, 200)) },
+        { 8, new SolidColorBrush(Color.FromRgb(242, 177, 121)) },
+        { 16, new SolidColorBrush(Color.FromRgb(245, 149, 99)) },
+        { 32, new SolidColorBrush(Color.FromRgb(246, 124, 95)) },
+        { 64, new SolidColorBrush(Color.FromRgb(246, 94, 59)) },
+        { 128, new SolidColorBrush(Color.FromRgb(237, 207, 114)) },
+        { 256, new SolidColorBrush(Color.FromRgb(237, 204, 97)) },
+        { 512, new SolidColorBrush(Color.FromRgb(237, 200, 80)) },
+        { 1024, new SolidColorBrush(Color.FromRgb(237, 197, 63)) },
+        { 2048, new SolidColorBrush(Color.FromRgb(237, 194, 46)) },
+    };
+    private static readonly SolidColorBrush DefaultTileColor = new(Color.FromRgb(205, 193, 180));
 
     // 添加背景网格数据绑定
     public ObservableCollection<BackgroundCell> BackgroundCells { get; }
